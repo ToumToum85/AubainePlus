@@ -31,14 +31,19 @@ async function getLiensProduits(browser, urlCategorie) {
   return liensUniques;
 }
 
-// ---- FONCTION 2 : Scraper un produit (avec sélecteurs multiples de secours) ----
+// ---- FONCTION 2 : Scraper un produit (optimisé pour les pages lourdes) ----
 async function scrapeProduit(browser, url) {
   const page = await browser.newPage();
 
+  // Bloquer les ressources inutiles
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const type = req.resourceType();
-    if (type === 'image' || type === 'stylesheet' || type === 'font') {
+    const url = req.url();
+    
+    // Bloquer les images, CSS, fonts, media, et tracking
+    if (['image', 'stylesheet', 'font', 'media', 'xhr'].includes(type) || 
+        url.includes('analytics') || url.includes('tracking') || url.includes('ads')) {
       req.abort();
     } else {
       req.continue();
@@ -49,10 +54,20 @@ async function scrapeProduit(browser, url) {
 
   try {
     const data = await avecTimeout((async () => {
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+      // Charger la page plus rapidement
+      await page.goto(url, { 
+        waitUntil: 'domcontentloaded', // Plus rapide que networkidle2
+        timeout: 20000 
+      });
 
-      await page.waitForSelector('h1', { timeout: 10000 }).catch(() => {});
-      await new Promise(resolve => setTimeout(resolve, 2000)); // laisser le JS finir de charger le prix
+      // Attendre le titre ET ajouter délai pour que le JS du prix charge
+      try {
+        await page.waitForSelector('h1', { timeout: 8000 });
+      } catch (e) {
+        // Si pas de h1, continuer quand même
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 2500)); // délai pour le prix
 
       return await page.evaluate(() => {
         const nom = document.querySelector('.nl-product__title')?.innerText.trim()
@@ -63,16 +78,21 @@ async function scrapeProduit(browser, url) {
         const prixActuel = document.querySelector('.nl-price--total--red')?.innerText.trim()
           || document.querySelector('.nl-price__total')?.innerText.trim()
           || document.querySelector('[data-testid="price-now"]')?.innerText.trim()
-          || document.querySelector('.price-now')?.innerText.trim();
+          || document.querySelector('.price-now')?.innerText.trim()
+          || document.querySelector('[class*="price"][class*="current"]')?.innerText.trim()
+          || document.querySelector('[class*="price"][class*="sale"]')?.innerText.trim();
 
         const prixRegulier = document.querySelector('.nl-price--was s')?.innerText.trim()
           || document.querySelector('.nl-price__was')?.innerText.trim()
           || document.querySelector('[data-testid="price-was"]')?.innerText.trim()
-          || document.querySelector('.price-was')?.innerText.trim();
+          || document.querySelector('.price-was')?.innerText.trim()
+          || document.querySelector('[class*="price"][class*="regular"]')?.innerText.trim()
+          || document.querySelector('[class*="price"][class*="original"]')?.innerText.trim();
 
         const image = document.querySelector('.nl-media-gallery img')?.src
           || document.querySelector('img[class*="product"]')?.src
-          || document.querySelector('picture img')?.src;
+          || document.querySelector('picture img')?.src
+          || document.querySelector('img[alt*="product" i]')?.src;
 
         return {
           nom: nom || null,
@@ -81,7 +101,7 @@ async function scrapeProduit(browser, url) {
           image: image || null,
         };
       });
-    })(), 30000, url);
+    })(), 28000, url); // Réduit à 28s au lieu de 30s
 
     await page.close().catch(() => {});
     return { url, ...data, erreur: null };
@@ -93,7 +113,7 @@ async function scrapeProduit(browser, url) {
 }
 
 // ---- FONCTION 3 : Scraper en parallèle par lots d'onglets ----
-async function scraperEnLots(browser, liens, tailleLot = 15) {
+async function scraperEnLots(browser, liens, tailleLot = 4) { // Réduit à 4 onglets au lieu de 5
   const resultats = [];
 
   for (let i = 0; i < liens.length; i += tailleLot) {
@@ -127,12 +147,20 @@ async function scraperCategorieComplete(urlCategorie) {
   console.time('⏱️ Temps total');
   console.log('🚀 Début du scraping de la catégorie\n');
 
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({ 
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage', // Important pour les machines avec peu de RAM
+      '--disable-gpu'
+    ]
+  });
 
   const liens = await getLiensProduits(browser, urlCategorie);
 
-  console.log('\n🏃 Scraping des produits en parallèle (5 onglets à la fois)...');
-  const resultats = await scraperEnLots(browser, liens, 5);
+  console.log('\n🏃 Scraping des produits en parallèle (4 onglets à la fois)...');
+  const resultats = await scraperEnLots(browser, liens, 4);
 
   await browser.close();
 
