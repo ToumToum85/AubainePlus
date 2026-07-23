@@ -2,194 +2,53 @@
 const PRODUITS_PAR_PAGE = 30;
 let tousLesProduits = [];
 let pageActuelle = 1;
-let categorieActuelle = null; // Nouvelle variable
+let categorieActuelle = null;
 
 // ========== CHARGER LES CATÉGORIES ==========
 async function chargerCategories() {
   try {
-    const response = await fetch('/api/categories');
-    
-    if (!response.ok) throw new Error('Erreur API');
-    
-    const categories = await response.json();
-    afficherNavCategories(categories);
-    
+    const response = await fetch('/api/produits');
+    const produits = await response.json();
+
+    // Extraire les catégories uniques
+    const categories = [...new Set(produits.map(p => p.categorie))];
+
+    const navDiv = document.getElementById('categories-nav');
+    if (!navDiv) return;
+
+    navDiv.innerHTML = categories
+      .filter(cat => cat) // Enlever les vides
+      .map(cat => `<a href="/categorie/${cat}" class="cat-link">${cat}</a>`)
+      .join('');
   } catch (error) {
-    console.error('Erreur catégories:', error);
+    console.error('Erreur chargement catégories:', error);
   }
-}
-
-// ========== AFFICHER LA NAV DES CATÉGORIES ==========
-function afficherNavCategories(categories) {
-  const nav = document.getElementById('categories-nav');
-  
-  let html = '<a href="/" class="cat-link active">Tous les produits</a>';
-  
-  categories.forEach(cat => {
-    html += `<a href="/categorie/${cat.slug}" class="cat-link">${cat.nom}</a>`;
-  });
-  
-  nav.innerHTML = html;
-}
-
-// ========== CRÉER UNE CARTE PRODUIT ==========
-function creerCarteProduit(produit) {
-  const {
-    id,
-    nom,
-    description,
-    prix_actuel,
-    prix_original,
-    pourcentage_rabais,
-    url_produit,
-    url_image,
-    magasin
-  } = produit;
-
-  let imageUrl = url_image;
-
-  if (imageUrl && !imageUrl.startsWith('http')) {
-    imageUrl = `https://via.placeholder.com/280x200?text=${encodeURIComponent(nom)}`;
-  }
-
-  if (!imageUrl) {
-    imageUrl = 'https://via.placeholder.com/280x200?text=Pas+d%27image';
-  }
-
-  function echapperHtml(texte) {
-    const div = document.createElement('div');
-    div.textContent = texte;
-    return div.innerHTML;
-  }
-
-  function formatPrix(prix) {
-    return parseFloat(prix).toFixed(2);
-  }
-
-  return `
-    <div class="produit-card">
-      <div class="produit-card__image-wrapper">
-        <img
-          class="produit-card__image"
-          src="${imageUrl}"
-          alt="${echapperHtml(nom)}"
-          onerror="this.src='https://via.placeholder.com/280x200?text=Erreur+image'"
-        >
-        ${pourcentage_rabais ? `<span class="produit-card__badge">-${pourcentage_rabais}%</span>` : ''}
-      </div>
-
-      <div class="produit-card__content">
-        <h3 class="produit-card__title">${echapperHtml(nom)}</h3>
-
-        ${description ? `<p class="produit-card__description">${echapperHtml(description)}</p>` : ''}
-
-        <div class="produit-card__prices">
-          <div class="produit-card__price-current">
-            ${prix_actuel ? `${formatPrix(prix_actuel)} $` : 'Prix non disponible'}
-          </div>
-          ${prix_original ? `<div class="produit-card__price-original">${formatPrix(prix_original)} $</div>` : ''}
-        </div>
-
-        <a
-          href="${url_produit}"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="produit-card__link"
-        >
-          Voir l'offre →
-        </a>
-      </div>
-    </div>
-  `;
-}
-
-// ========== AFFICHER LA PAGE ACTUELLE ==========
-function afficherPage(numeroPage) {
-  const container = document.getElementById('produits-container');
-  const debut = (numeroPage - 1) * PRODUITS_PAR_PAGE;
-  const fin = debut + PRODUITS_PAR_PAGE;
-  const produitsPage = tousLesProduits.slice(debut, fin);
-
-  container.innerHTML = produitsPage
-    .map(produit => creerCarteProduit(produit))
-    .join('');
-
-  mettreAJourPagination(numeroPage);
-}
-
-// ========== METTRE À JOUR LES BOUTONS DE PAGINATION ==========
-function mettreAJourPagination(numeroPage) {
-  const totalPages = Math.ceil(tousLesProduits.length / PRODUITS_PAR_PAGE);
-  const paginationContainer = document.getElementById('pagination');
-
-  paginationContainer.innerHTML = '';
-
-  if (numeroPage > 1) {
-    const btnPrecedent = document.createElement('button');
-    btnPrecedent.textContent = '← Précédent';
-    btnPrecedent.className = 'pagination-btn';
-    btnPrecedent.onclick = () => {
-      pageActuelle = numeroPage - 1;
-      afficherPage(pageActuelle);
-      window.scrollTo(0, 0);
-    };
-    paginationContainer.appendChild(btnPrecedent);
-  }
-
-  const conteneurNumeros = document.createElement('div');
-  conteneurNumeros.className = 'pagination-numbers';
-
-  for (let i = 1; i <= totalPages; i++) {
-    const btn = document.createElement('button');
-    btn.textContent = i;
-    btn.className = `pagination-number ${i === numeroPage ? 'active' : ''}`;
-    btn.onclick = () => {
-      pageActuelle = i;
-      afficherPage(pageActuelle);
-      window.scrollTo(0, 0);
-    };
-    conteneurNumeros.appendChild(btn);
-  }
-
-  paginationContainer.appendChild(conteneurNumeros);
-
-  if (numeroPage < totalPages) {
-    const btnSuivant = document.createElement('button');
-    btnSuivant.textContent = 'Suivant →';
-    btnSuivant.className = 'pagination-btn';
-    btnSuivant.onclick = () => {
-      pageActuelle = numeroPage + 1;
-      afficherPage(pageActuelle);
-      window.scrollTo(0, 0);
-    };
-    paginationContainer.appendChild(btnSuivant);
-  }
-
-  const info = document.createElement('div');
-  info.className = 'pagination-info';
-  info.textContent = `Page ${numeroPage} sur ${totalPages} (${tousLesProduits.length} produits)`;
-  paginationContainer.appendChild(info);
 }
 
 // ========== CHARGER LES PRODUITS ==========
-async function chargerProduits(slug = null) {
+async function chargerProduits(categorieFilter = null) {
   const container = document.getElementById('produits-container');
+  if (!container) return;
+
+  container.innerHTML = '<div class="loading">Chargement des produits...</div>';
 
   try {
-    const url = slug ? `/api/produits/categorie/${slug}` : '/api/produits';
-    const response = await fetch(url);
+    const response = await fetch('/api/produits');
+    if (!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
 
-    if (!response.ok) {
-      throw new Error(`Erreur HTTP: ${response.status}`);
+    let produits = await response.json();
+
+    // Filtrer par catégorie si nécessaire
+    if (categorieFilter) {
+      produits = produits.filter(p => p.categorie === categorieFilter);
     }
 
-    tousLesProduits = await response.json();
-
-    if (!tousLesProduits || tousLesProduits.length === 0) {
+    if (!produits || produits.length === 0) {
       container.innerHTML = '<div class="empty">Aucun produit disponible pour le moment.</div>';
       return;
     }
 
+    tousLesProduits = produits;
     pageActuelle = 1;
     afficherPage(1);
 
@@ -205,11 +64,111 @@ async function chargerProduits(slug = null) {
     `;
   }
 }
+// ========== AFFICHER UNE PAGE ==========
+function afficherPage(numeroPage) {
+  const container = document.getElementById('produits-container');
+  if (!container) return;
+
+  const debut = (numeroPage - 1) * PRODUITS_PAR_PAGE;
+  const fin = debut + PRODUITS_PAR_PAGE;
+  const produitsDeLaPage = tousLesProduits.slice(debut, fin);
+
+  container.innerHTML = produitsDeLaPage
+    .map(produit => creerCarteProduit(produit))  // ✅ pas de caractère spécial
+    .join('');
+
+  afficherPagination(numeroPage);
+}
+
+// ========== CRÉER UNE CARTE PRODUIT ==========
+function creerCarteProduit(produit) {
+  const prixOriginal = produit.prix_original ? `$${produit.prix_original.toFixed(2)}` : '';
+  const badge = produit.pourcentage_rabais ? `<span class="produit-card__badge">-${produit.pourcentage_rabais}%</span>` : '';
+
+  return `
+    <div class="produit-card">
+      <div class="produit-card__image-container">
+        ${badge}
+        <div class="produit-card__image-wrapper">
+          <img 
+            src="${produit.image_url || 'https://via.placeholder.com/280x200?text=Erreur+image'}" 
+            alt="${produit.nom}"
+            class="produit-card__image"
+            onerror="this.src='https://via.placeholder.com/280x200?text=Erreur+image'"
+          >
+        </div>
+      </div>
+      <div class="produit-card__content">
+        <h3 class="produit-card__nom">${produit.nom}</h3>
+        <p class="produit-card__categorie">${produit.categorie}</p>
+        <p class="produit-card__description">${produit.description || ''}</p>
+        
+        <div class="produit-card__prix">
+          ${prixOriginal ? `<span class="produit-card__prix-original">${prixOriginal}</span>` : ''}
+          <span class="produit-card__prix-actuel">$${produit.prix_actuel.toFixed(2)}</span>
+        </div>
+
+        <p class="produit-card__magasin">🏪 ${produit.magasin}</p>
+
+        <a 
+          href="${produit.url_produit}" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          class="produit-card__btn-voir"
+        >
+          Voir le produit
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+// ========== PAGINATION ==========
+function afficherPagination(numeroPage) {
+  const paginationDiv = document.getElementById('pagination');
+  if (!paginationDiv) return;
+
+  const totalPages = Math.ceil(tousLesProduits.length / PRODUITS_PAR_PAGE);
+
+  if (totalPages <= 1) {
+    paginationDiv.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+
+  // Bouton précédent
+  if (numeroPage > 1) {
+    html += `<button class="pagination__btn" onclick="allerAPage(${numeroPage - 1})">← Précédent</button>`;
+  }
+
+  // Numéros de pages
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === numeroPage) {
+      html += `<span class="pagination__current">${i}</span>`;
+    } else {
+      html += `<button class="pagination__btn" onclick="allerAPage(${i})">${i}</button>`;
+    }
+  }
+
+  // Bouton suivant
+  if (numeroPage < totalPages) {
+    html += `<button class="pagination__btn" onclick="allerAPage(${numeroPage + 1})">Suivant →</button>`;
+  }
+
+  paginationDiv.innerHTML = html;
+}
+
+function allerAPage(numeroPage) {
+  pageActuelle = numeroPage;
+  afficherPage(numeroPage);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 // ========== GÉRER LE ROUTAGE ==========
 function handleNavigation() {
   const path = window.location.pathname;
-  
+
   if (path.startsWith('/categorie/')) {
     const slug = path.split('/categorie/')[1];
     categorieActuelle = slug;

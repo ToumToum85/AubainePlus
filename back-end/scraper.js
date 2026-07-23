@@ -6,7 +6,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // ---- Configuration Supabase ----
 const supabase = createClient(
- process.env.SUPABASE_URL,
+  process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
 
@@ -70,8 +70,7 @@ async function sauvegarderProduit(produit, categorieSlug, nomMagasin) {
   if (!pourcentageRabais && prixActuel && prixOriginal && prixOriginal > prixActuel) {
     pourcentageRabais = Math.round(((prixOriginal - prixActuel) / prixOriginal) * 100);
   }
-// Dans ta fonction de sauvegarde BD, avant l'insertion
-const prixOriginalFinal = produit.prixRegulier || produit.prixActuel;
+
   const { error } = await supabase
     .from('produits')
     .upsert({
@@ -95,8 +94,8 @@ const prixOriginalFinal = produit.prixRegulier || produit.prixActuel;
   }
 }
 
-async function scraperProduit(browser, url, essai = 1) {  // ✅ ajouté avec valeur par défaut
-  const page = await browser.newPage();  
+async function scraperProduit(browser, url, essai = 1) {
+  const page = await browser.newPage();
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const type = req.resourceType();
@@ -157,12 +156,11 @@ async function scraperProduit(browser, url, essai = 1) {  // ✅ ajouté avec va
 
   } catch (err) {
     console.log(`  ⚠️ Erreur scraping ${url}: ${err.message}`);
-    
-    // Fermer la page seulement si elle n'est pas déjà fermée
+
     if (!page.isClosed()) {
       await page.close().catch(() => {});
     }
-    
+
     if (essai === 1) {
       return await scraperProduit(browser, url, 2);
     }
@@ -172,7 +170,7 @@ async function scraperProduit(browser, url, essai = 1) {  // ✅ ajouté avec va
 
 function construireUrlPage(urlBase, pageNum) {
   if (pageNum === 1) return urlBase;
-  
+
   const separateur = urlBase.includes('?') ? '&' : '?';
   return `${urlBase}${separateur}page=${pageNum}`;
 }
@@ -209,7 +207,10 @@ async function recupererLiensProduits(page) {
 
 // ---- Fonction principale : scraper une catégorie complète (avec pagination) ----
 async function scraperCategorieComplete(urlBase, categorieSlug, nomMagasin) {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
 
   let pageNum = 1;
   let continuerPagination = true;
@@ -250,7 +251,8 @@ async function scraperCategorieComplete(urlBase, categorieSlug, nomMagasin) {
   console.log(`\n✅ Catégorie "${categorieSlug}" terminée: ${totalScrapes} produits scrapés et sauvegardés`);
   return totalScrapes;
 }
-// ---- APPEL FINAL ----
+
+// ---- APPEL FINAL (utilisé seulement si on lance node scraper.js directement) ----
 async function main() {
   console.time('⏱️ Temps total');
 
@@ -274,4 +276,27 @@ async function main() {
   console.timeEnd('⏱️ Temps total');
 }
 
-main();
+// ---- Scraper UN produit à la demande (pour l'admin, sans navigateur persistant) ----
+async function scraperUnProduitDepuisUrl(url) {
+  const browser = await puppeteer.launch({ headless: true });
+  try {
+    const produit = await scraperProduit(browser, url);
+    return produit;
+  } finally {
+    await browser.close();
+  }
+}
+
+// ---- Exports pour utilisation dans server.js ----
+module.exports = {
+  scraperUnProduitDepuisUrl,
+  scraperCategorieComplete,
+  parsePrix,
+  getCategorieId,
+  getMagasinId,
+};
+
+// Ne lance main() que si le fichier est exécuté directement (node scraper.js)
+if (require.main === module) {
+  main();
+}

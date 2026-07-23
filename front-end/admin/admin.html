@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Admin - AubainePlus</title>
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <div class="admin-container">
+    <!-- Header -->
+    <header class="admin-header">
+      <h1>🛠️ Panel Administration - AubainePlus</h1>
+      <p>Ajouter et gérer vos produits en rabais</p>
+    </header>
+
+    <!-- Main Content -->
+    <div class="admin-content">
+
+      <!-- Section 0: Scraper une catégorie complète -->
+      <section class="admin-section">
+        <h2>📦 Scraper une catégorie complète (Canadian Tire)</h2>
+
+        <div class="form-group">
+          <label for="scrapMagasinSelect">Magasin :</label>
+          <select id="scrapMagasinSelect" class="input-field">
+            <option value="canadian-tire">Canadian Tire</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="scrapUrl">URL de la catégorie / page de liquidation :</label>
+          <input 
+            type="text" 
+            id="scrapUrl" 
+            class="input-field" 
+            placeholder="https://www.canadiantire.ca/fr/promotions/liquidation/cuisine.html"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="scrapSlugCategorie">Slug de catégorie (doit exister en BD) :</label>
+          <input 
+            type="text" 
+            id="scrapSlugCategorie" 
+            class="input-field" 
+            placeholder="ex: outils-et-quincaillerie"
+          >
+        </div>
+
+        <div class="form-actions">
+          <button id="btnScraperCategorie" class="btn btn-primary" onclick="lancerScrapingCategorie()">
+            🚀 Lancer le scraping
+          </button>
+        </div>
+
+        <div id="scrapStatus" class="rabais-info"></div>
+      </section>
+
+      <!-- Section 1: Ajouter un produit -->
+      <section class="admin-section">
+        <h2>➕ Ajouter un nouveau produit</h2>
+
+        <div class="form-group">
+          <label for="url-input">Coller le lien du produit :</label>
+          <div class="input-group">
+            <input 
+              type="url" 
+              id="url-input" 
+              placeholder="https://example.com/produit"
+              class="input-field"
+            >
+            <button id="scrape-btn" class="btn btn-primary">🔍 Analyser le lien</button>
+          </div>
+        </div>
+
+        <!-- Loader -->
+        <div id="scrape-loader" class="loader" style="display: none;">
+          ⏳ Lecture du produit en cours...
+        </div>
+
+        <!-- Formulaire produit -->
+        <form id="produit-form" class="produit-form" style="display: none;">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="nom">Nom du produit *</label>
+              <input type="text" id="nom" required class="input-field">
+            </div>
+
+            <div class="form-group">
+              <label for="categorie">Catégorie *</label>
+              <select id="categorie" required class="input-field">
+                <option value="">-- Choisir une catégorie --</option>
+                <option value="electromenager">Électroménager</option>
+                <option value="vetements">Vêtements</option>
+                <option value="outils-quincaillerie">Outils & Quincaillerie</option>
+                <option value="sports-loisirs">Sports & Loisirs</option>
+                <option value="maison-jardin">Maison & Jardin</option>
+                <option value="electronique">Électronique</option>
+                <option value="livres-medias">Livres & Médias</option>
+                <option value="jouets">Jouets</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="prix-original">Prix original $ *</label>
+              <input type="number" id="prix-original" step="0.01" required class="input-field">
+            </div>
+
+            <div class="form-group">
+              <label for="prix-actuel">Prix en rabais $ *</label>
+              <input type="number" id="prix-actuel" step="0.01" required class="input-field">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="magasin">Magasin/Source *</label>
+            <select id="magasin" required class="input-field">
+              <option value="">-- Choisir un magasin --</option>
+              <option value="amazon">Amazon</option>
+              <option value="walmart">Walmart</option>
+              <option value="costco">Costco</option>
+              <option value="rona">Rona</option>
+              <option value="home-depot">Home Depot</option>
+              <option value="best-buy">Best Buy</option>
+              <option value="futureshop">Future Shop</option>
+              <option value="bureau-en-gros">Bureau en Gros</option>
+              <option value="canadian-tire">Canadian Tire</option>
+              <option value="autres">Autres</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="description">Description (optionnel)</label>
+            <textarea id="description" rows="3" class="input-field" placeholder="Ajouter des détails sur le produit..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="image-url">URL de l'image (optionnel)</label>
+            <input type="url" id="image-url" class="input-field" placeholder="https://...">
+          </div>
+
+          <div class="form-group">
+            <label for="url-produit">Lien du produit *</label>
+            <input type="url" id="url-produit" required class="input-field">
+          </div>
+
+          <!-- Preview image -->
+          <div id="image-preview" class="image-preview" style="display: none;">
+            <img id="preview-img" src="" alt="Aperçu">
+          </div>
+
+          <!-- Statut rabais -->
+          <div class="form-group">
+            <p class="rabais-info" id="rabais-info"></p>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-success">✅ Ajouter le produit</button>
+            <button type="button" class="btn btn-secondary" id="cancel-btn">Annuler</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Section 2: Liste des produits -->
+      <section class="admin-section">
+        <h2>📦 Produits ajoutés</h2>
+
+        <div class="filter-group">
+          <input 
+            type="text" 
+            id="search-input" 
+            placeholder="🔍 Chercher un produit..."
+            class="input-field"
+          >
+          <select id="filter-categorie" class="input-field">
+            <option value="">Toutes les catégories</option>
+            <option value="electromenager">Électroménager</option>
+            <option value="vetements">Vêtements</option>
+            <option value="outils-quincaillerie">Outils & Quincaillerie</option>
+            <option value="sports-loisirs">Sports & Loisirs</option>
+            <option value="maison-jardin">Maison & Jardin</option>
+            <option value="electronique">Électronique</option>
+            <option value="livres-medias">Livres & Médias</option>
+            <option value="jouets">Jouets</option>
+          </select>
+        </div>
+
+        <div id="produits-list" class="produits-list">
+          <p class="loading">Chargement des produits...</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="js/admin.js"></script>
+</body>
+</html>

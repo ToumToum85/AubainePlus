@@ -1,142 +1,280 @@
-
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
+// ============ IMPORTS DES FONCTIONS DE SCRAPING ============
+const {
+  scraperCategorieComplete,
+  scraperUnProduitDepuisUrl
+} = require('./scraper.js');
+
+// ============ CONFIGURATION ============
 const app = express();
-
-// ---- Configuration ----
-app.use(cors());
-app.use(express.json());
-
-// 🔥 IMPORTANT : Sert le dossier front-end en STATIQUE
-app.use(express.static(path.join(__dirname, '../front-end')));
-
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
 
-// ---- ROUTES API ----
+app.use(cors());
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../front-end/index.html'));
+// ============ CONTENT SECURITY POLICY ============
+app.use((req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: http: https:; " +
+    "connect-src 'self' http://localhost:* https:; " +
+    "font-src 'self' data:;"
+  );
+  next();
 });
 
-// Route : Récupérer TOUS les produits
+app.use(express.json({ limit: '50mb' }));
+app.use(express.static(path.join(__dirname, '../front-end')));
+
+// ============ CACHE POUR CATÉGORIES & MAGASINS ============
+const cacheCategories = {};
+const cacheMagasins = {};
+
+async function getCategorieId(slug) {
+  if (cacheCategories[slug]) return cacheCategories[slug];
+
+  const { data, error } = await supabase
+    .from('categories')
+    .select('id')
+    .eq('slug', slug)
+    .single();
+
+  if (error || !data) {
+    console.log(`  ⚠️ Catégorie "${slug}" introuvable en BD`);
+    return null;
+  }
+
+  cacheCategories[slug] = data.id;
+  return data.id;
+}
+
+async function getMagasinId(nomMagasin) {
+  if (cacheMagasins[nomMagasin]) return cacheMagasins[nomMagasin];
+
+  const { data, error } = await supabase
+    .from('magasins')
+    .select('id')
+    .eq('nom', nomMagasin)
+    .single();
+
+  if (error || !data) {
+    console.log(`  ⚠️ Magasin "${nomMagasin}" introuvable en BD`);
+    return null;
+  }
+
+  cacheMagasins[nomMagasin] = data.id;
+  return data.id;
+}
+
+// ============ ROUTE PUBLIQUE - RÉCUPÉRER PRODUITS ACTIFS ============
 app.get('/api/produits', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('produits')
-      .select('*')
+      .select('*, categories(slug, nom), magasins(nom)')
       .eq('actif', true)
       .order('derniere_maj', { ascending: false });
 
     if (error) throw error;
-    res.json(data || []);
+
+    const produitsFormates = (data || []).map(p => ({
+      id: p.id,
+      nom: p.nom,
+      categorie: p.categories?.slug || '',
+      prix_original: p.prix_original,
+      prix_actuel: p.prix_actuel,
+      magasin: p.magasins?.nom || '',
+      description: p.description,
+      image_url: p.url_image,
+      url_produit: p.url_produit,
+      pourcentage_rabais: p.pourcentage_rabais,
+    }));
+
+    res.json(produitsFormates);
   } catch (err) {
     console.error('Erreur API /produits:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Route : Récupérer produits par catégorie
-app.get('/api/produits/categorie/:slug', async (req, res) => {
+// ============ ROUTES ADMIN ============
+
+// Récupérer TOUS les produits (admin - actifs ET inactifs)
+app.get('/api/produits/admin', async (req, res) => {
   try {
-    const { slug } = req.params;
+    const { data, error } = await supabase
+      .from('produits')
+      .select('*, categories(slug, nom), magasins(nom)')
+      .order('derniere_maj', { ascending: false });
 
-    const { data: catData, error: catError } = await supabase
-      .from('categories')
-      .select('id')
-      .eq('slug', slug)
-      .single();
+    if (error) throw error;
 
-    if (catError || !catData) {
-      return res.status(404).json({ error: 'Catégorie non trouvée' });
+    const produitsFormates = (data || []).map(p => ({
+      id: p.id,
+      nom: p.nom,
+      categorie: p.categories?.slug || '',
+      prix_original: p.prix_original,
+      prix_actuel: p.prix_actuel,
+      magasin: p.magasins?.nom || '',
+      description: p.description,
+      image_url: p.url_image,
+      url_produit: p.url_produit,
+      pourcentage_rabais: p.pourcentage_rabais,
+    }));
+
+    res.json(produitsFormates);
+  } catch (err) {
+    console.error('Erreur API /produits/admin:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Scraper un produit à la demande (retourne les données SANS sauvegarder)
+app.post('/api/produits/scraper', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL manquante' });
+
+    console.log(`🔍 Scraping demandé pour: ${url}`);
+    const produit = await scraperUnProduitDepuisUrl(url);
+
+    if (!produit || !produit.nom) {
+      return res.status(422).json({ error: 'Impossible d\'extraire les données de ce produit' });
+    }
+
+    res.json(produit);
+  } catch (err) {
+    console.error('Erreur scraping:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Ajouter un nouveau produit
+app.post('/api/produits', async (req, res) => {
+  try {
+    const {
+      nom,
+      categorie,
+      prix_original,
+      prix_actuel,
+      magasin,
+      description,
+      image_url,
+      url_produit
+    } = req.body;
+
+    if (!nom || !categorie || !magasin || !prix_actuel) {
+      return res.status(400).json({ error: 'Champs obligatoires manquants' });
+    }
+
+    const categorieId = await getCategorieId(categorie);
+    if (!categorieId) {
+      return res.status(400).json({ error: `Catégorie "${categorie}" introuvable en BD` });
+    }
+
+    const magasinId = await getMagasinId(magasin);
+    if (!magasinId) {
+      return res.status(400).json({ error: `Magasin "${magasin}" introuvable en BD` });
+    }
+
+    let pourcentageRabais = null;
+    if (prix_original && prix_actuel && prix_original > prix_actuel) {
+      pourcentageRabais = Math.round(((prix_original - prix_actuel) / prix_original) * 100);
     }
 
     const { data, error } = await supabase
       .from('produits')
-      .select('*')
-      .eq('categorie_id', catData.id)
-      .eq('actif', true)
-      .order('derniere_maj', { ascending: false });
+      .insert({
+        nom,
+        categorie_id: categorieId,
+        magasin_id: magasinId,
+        prix_original: prix_original || null,
+        prix_actuel,
+        description: description || null,
+        url_image: image_url || null,
+        url_produit: url_produit || null,
+        pourcentage_rabais: pourcentageRabais,
+        actif: true,
+        derniere_maj: new Date().toISOString(),
+      })
+      .select();
 
     if (error) throw error;
-    res.json(data || []);
+
+    res.status(201).json(data[0]);
   } catch (err) {
-    console.error('Erreur API:', err);
+    console.error('Erreur ajout produit:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Route : Récupérer produits par catégorie
-app.get('/api/produits/categorie/:slug', async (req, res) => {
+// ========== ROUTE NOUVELLE : SCRAPER UNE CATÉGORIE COMPLÈTE ==========
+app.post('/api/scraper-categorie', async (req, res) => {
   try {
-    const { slug } = req.params;
+    const { magasin, url, categorieSlug } = req.body;
 
-    const { data: catData, error: catError } = await supabase
-      .from('categories')
-      .select('id')
-      .eq('slug', slug)
-      .single();
-
-    if (catError || !catData) {
-      return res.status(404).json({ error: 'Catégorie non trouvée' });
+    if (!url || !categorieSlug) {
+      return res.status(400).json({ error: 'URL et slug de catégorie requis' });
     }
 
-    const { data, error } = await supabase
-      .from('produits')
-      .select('*')
-      .eq('categorie_id', catData.id)
-      .eq('actif', true)
-      .order('derniere_maj', { ascending: false });
+    // Vérifie que la catégorie existe en BD
+    const categorieId = await getCategorieId(categorieSlug);
+    if (!categorieId) {
+      return res.status(400).json({ error: `Catégorie "${categorieSlug}" introuvable en BD. Ajoute-la d'abord !` });
+    }
 
-    if (error) throw error;
-    res.json(data || []);
+    console.log(`\n🚀 Début du scraping pour: ${categorieSlug}`);
+    console.log(`📍 URL: ${url}`);
+
+    // Lance le scraping (cette fonction vient de scraper.js)
+    const totalProduits = await scraperCategorieComplete(url, categorieSlug, magasin || 'Canadian Tire');
+
+    res.json({
+      success: true,
+      total: totalProduits,
+      message: `✅ ${totalProduits} produits scrapés et sauvegardés pour "${categorieSlug}"`
+    });
+
   } catch (err) {
-    console.error('Erreur API:', err);
+    console.error('❌ Erreur scraper-categorie:', err);
     res.status(500).json({ error: err.message });
   }
 });
-// Route : Récupérer toutes les catégories
-app.get('/api/categories', async (req, res) => {
+
+// Supprimer un produit
+app.delete('/api/produits/:id', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .order('nom', { ascending: true });
+    const { id } = req.params;
 
-    if (error) throw error;
-    res.json(data || []);
-  } catch (err) {
-    console.error('Erreur API:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 🔥 ROUTE DEBUG : Vérifier les images
-app.get('/api/debug/produits', async (req, res) => {
-  try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('produits')
-      .select('id, nom, url_image, actif')  // ✅ url_image au lieu de image_url
-      .limit(10);
+      .delete()
+      .eq('id', id);
 
     if (error) throw error;
 
-    console.log('📸 PRODUITS DEBUG:', data);
-    res.json(data);
+    res.json({ success: true });
   } catch (err) {
-    console.error('Erreur DEBUG:', err);
+    console.error('Erreur suppression:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---- Démarrage du serveur ----
+// ============ DÉMARRAGE DU SERVEUR ============
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Serveur lancé sur http://localhost:${PORT}`);
+  console.log(`📡 API disponible sur http://localhost:${PORT}/api/produits`);
 });
+
+module.exports = app;
